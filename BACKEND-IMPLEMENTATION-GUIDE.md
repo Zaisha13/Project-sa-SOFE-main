@@ -1,6 +1,6 @@
 # Backend Implementation Guide for Jessie Cane Juice Bar
 
-This guide provides complete instructions for PHP backend developers to implement the backend API, MySQL database, GCash payment integration, and Google Authentication for the Jessie Cane Juice Bar web application.
+This guide provides complete instructions for PHP backend developers to implement the backend API, MySQL database, Xendit GCash payment integration, and Google Authentication for the Jessie Cane Juice Bar web application.
 
 ---
 
@@ -8,7 +8,7 @@ This guide provides complete instructions for PHP backend developers to implemen
 1. [Prerequisites](#prerequisites)
 2. [Database Setup](#database-setup)
 3. [Backend API Structure](#backend-api-structure)
-4. [GCash Payment Integration](#gcash-payment-integration)
+4. [Xendit GCash Payment Integration](#xendit-gcash-payment-integration)
 5. [Google Authentication Integration](#google-authentication-integration)
 6. [XAMPP Configuration](#xampp-configuration)
 7. [Frontend Integration](#frontend-integration)
@@ -23,7 +23,7 @@ This guide provides complete instructions for PHP backend developers to implemen
 - **phpMyAdmin** (included with XAMPP)
 - **Visual Studio Code** or any PHP editor
 - **Google Cloud Console** account (for Google Auth)
-- **GCash Developer Account** (for payment integration)
+- **Xendit Account** (for GCash payment integration) - [Sign Up](https://www.xendit.co/)
 
 ### PHP Extensions Required
 ```php
@@ -88,33 +88,55 @@ CREATE TABLE products (
 CREATE TABLE orders (
     id INT AUTO_INCREMENT PRIMARY KEY,
     order_id VARCHAR(50) UNIQUE NOT NULL,
-    user_id INT,
+    user_id INT NULL,
     customer_name VARCHAR(255) NOT NULL,
+    customer_username VARCHAR(100) DEFAULT '',
     customer_email VARCHAR(255),
     customer_phone VARCHAR(20),
+    customer_notes TEXT,
     branch VARCHAR(100) NOT NULL,
-    items JSON NOT NULL,
     subtotal DECIMAL(10, 2) NOT NULL,
     tax DECIMAL(10, 2) DEFAULT 0,
     total DECIMAL(10, 2) NOT NULL,
     payment_method ENUM('GCash', 'Cash', 'Other') DEFAULT 'GCash',
     payment_status ENUM('Pending', 'Paid', 'Failed', 'Refunded') DEFAULT 'Pending',
-    order_status ENUM('Pending', 'Processing', 'Ready', 'Completed', 'Cancelled') DEFAULT 'Pending',
-    notes TEXT,
+    order_status ENUM('Pending', 'Approved', 'Processing', 'Ready', 'Out for Delivery', 'Completed', 'Cancelled') DEFAULT 'Pending',
+    order_type ENUM('Digital', 'Walk-in') DEFAULT 'Digital',
+    is_guest TINYINT(1) DEFAULT 0,
+    timestamp BIGINT,
+    order_date VARCHAR(50),
+    order_time VARCHAR(50),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
 );
 ```
 
-#### Payments Table (for GCash transactions)
+#### Order Items Table
+```sql
+CREATE TABLE order_items (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    order_id INT NOT NULL,
+    product_name VARCHAR(255) NOT NULL,
+    size VARCHAR(50) NOT NULL,
+    special VARCHAR(100),
+    notes TEXT,
+    quantity INT NOT NULL DEFAULT 1,
+    price DECIMAL(10, 2) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE
+);
+```
+
+#### Payments Table (for Xendit GCash transactions)
 ```sql
 CREATE TABLE payments (
     id INT AUTO_INCREMENT PRIMARY KEY,
     order_id INT NOT NULL,
-    gcash_reference VARCHAR(255) UNIQUE,
+    xendit_id VARCHAR(255) UNIQUE,
+    xendit_reference VARCHAR(255),
     amount DECIMAL(10, 2) NOT NULL,
-    status ENUM('Pending', 'Success', 'Failed', 'Cancelled') DEFAULT 'Pending',
+    status ENUM('Pending', 'Paid', 'Failed', 'Expired', 'Cancelled') DEFAULT 'Pending',
     metadata JSON,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -495,13 +517,16 @@ if (!isset($data['items']) || !isset($data['customer_name']) || !isset($data['br
 
 $userId = $data['user_id'] ?? null;
 $customerName = $data['customer_name'];
+$customerUsername = $data['customer_username'] ?? '';
 $customerEmail = $data['customer_email'] ?? '';
 $customerPhone = $data['customer_phone'] ?? '';
+$customerNotes = $data['customer_notes'] ?? '';
 $branch = $data['branch'];
 $items = $data['items'];
 $subtotal = $data['subtotal'];
 $total = $data['total'];
-$notes = $data['notes'] ?? '';
+$orderType = 'Digital';
+$isGuest = !$userId || $userId === 0;
 
 $database = new Database();
 $db = $database->getConnection();
@@ -510,25 +535,49 @@ try {
     $db->beginTransaction();
     
     $orderId = generateOrderId();
+    $timestamp = time();
+    $orderDate = date('m/d/Y');
+    $orderTime = date('g:i A');
     
-    $query = "INSERT INTO orders (order_id, user_id, customer_name, customer_email, customer_phone, branch, items, subtotal, total, notes, payment_method, payment_status) 
-              VALUES (:order_id, :user_id, :customer_name, :customer_email, :customer_phone, :branch, :items, :subtotal, :total, :notes, 'GCash', 'Pending')";
+    // Insert order
+    $query = "INSERT INTO orders (order_id, user_id, customer_name, customer_username, customer_email, customer_phone, customer_notes, branch, subtotal, total, order_type, is_guest, timestamp, order_date, order_time, payment_method, payment_status, order_status) 
+              VALUES (:order_id, :user_id, :customer_name, :customer_username, :customer_email, :customer_phone, :customer_notes, :branch, :subtotal, :total, :order_type, :is_guest, :timestamp, :order_date, :order_time, 'GCash', 'Pending', 'Pending')";
     
     $stmt = $db->prepare($query);
     $stmt->bindParam(':order_id', $orderId);
     $stmt->bindParam(':user_id', $userId);
     $stmt->bindParam(':customer_name', $customerName);
+    $stmt->bindParam(':customer_username', $customerUsername);
     $stmt->bindParam(':customer_email', $customerEmail);
     $stmt->bindParam(':customer_phone', $customerPhone);
+    $stmt->bindParam(':customer_notes', $customerNotes);
     $stmt->bindParam(':branch', $branch);
-    $stmt->bindParam(':items', json_encode($items));
     $stmt->bindParam(':subtotal', $subtotal);
     $stmt->bindParam(':total', $total);
-    $stmt->bindParam(':notes', $notes);
+    $stmt->bindParam(':order_type', $orderType);
+    $stmt->bindParam(':is_guest', $isGuest);
+    $stmt->bindParam(':timestamp', $timestamp);
+    $stmt->bindParam(':order_date', $orderDate);
+    $stmt->bindParam(':order_time', $orderTime);
     
     $stmt->execute();
     
     $orderDbId = $db->lastInsertId();
+    
+    // Insert order items
+    foreach ($items as $item) {
+        $itemQuery = "INSERT INTO order_items (order_id, product_name, size, special, notes, quantity, price) 
+                      VALUES (:order_id, :name, :size, :special, :notes, :qty, :price)";
+        $itemStmt = $db->prepare($itemQuery);
+        $itemStmt->bindParam(':order_id', $orderDbId);
+        $itemStmt->bindParam(':name', $item['name']);
+        $itemStmt->bindParam(':size', $item['size']);
+        $itemStmt->bindParam(':special', $item['special']);
+        $itemStmt->bindParam(':notes', $item['notes']);
+        $itemStmt->bindParam(':qty', $item['qty']);
+        $itemStmt->bindParam(':price', $item['price']);
+        $itemStmt->execute();
+    }
     
     $db->commit();
     
@@ -546,21 +595,33 @@ try {
 
 ---
 
-## GCash Payment Integration
+## Xendit GCash Payment Integration
 
-### Step 1: Register for GCash Developer Account
+### Step 1: Register for Xendit Account
 
-1. Visit [GCash Developer Portal](https://developer.gcash.com/)
+1. Visit [Xendit Portal](https://www.xendit.co/)
 2. Create an account and register your application
-3. Get your **API Key** and **Secret Key**
+3. Get your **Secret API Key** from Settings → API Keys
+4. Enable **GCash** payment method in your dashboard
 
-### Step 2: Install GCash PHP SDK
+**Important Note:** This guide uses **Xendit Sandbox** for testing purposes. Real production integration requires:
+- Business registration and verification
+- Tax identification documents
+- Bank account setup
+- Compliance requirements
 
-Download the GCash PHP library or use cURL for API calls.
+For development and testing, use Xendit Sandbox credentials which require minimal setup.
 
-### Step 3: Create GCash Payment
+### Step 2: Install Xendit PHP Library (Optional)
 
-**File: `api/payments/gcash-create.php`**
+You can use cURL directly or install via Composer:
+```bash
+composer require xendit/xendit-php
+```
+
+### Step 3: Create Xendit GCash Payment
+
+**File: `api/payments/xendit-create.php`**
 ```php
 <?php
 header('Access-Control-Allow-Origin: *');
@@ -570,10 +631,11 @@ header('Access-Control-Allow-Headers: Content-Type');
 require_once __DIR__ . '/../../config/database.php';
 require_once __DIR__ . '/../../utils/response.php';
 
-// GCash Configuration
-define('GCASH_API_URL', 'https://api.gcash.com/v1/payments'); // Use actual GCash API URL
-define('GCASH_API_KEY', 'YOUR_API_KEY_HERE');
-define('GCASH_SECRET_KEY', 'YOUR_SECRET_KEY_HERE');
+// Xendit Configuration
+// For testing: Use Xendit Sandbox API URL
+define('XENDIT_API_URL', 'https://api.xendit.co/v2/invoices'); // Same URL for sandbox
+define('XENDIT_SECRET_KEY', 'YOUR_XENDIT_SECRET_KEY_HERE'); // Use Sandbox key for testing
+// Production: Change to production secret key when going live
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     sendError('Method not allowed', 405);
@@ -585,8 +647,8 @@ if (!isset($data['order_id']) || !isset($data['amount'])) {
     sendError('Order ID and amount are required');
 }
 
-$orderId = $data['order_id'];
-$amount = $data['amount'];
+$orderDbId = $data['order_id'];
+$amount = floatval($data['amount']);
 
 $database = new Database();
 $db = $database->getConnection();
@@ -594,7 +656,7 @@ $db = $database->getConnection();
 // Get order details
 $query = "SELECT * FROM orders WHERE id = :order_id";
 $stmt = $db->prepare($query);
-$stmt->bindParam(':order_id', $orderId);
+$stmt->bindParam(':order_id', $orderDbId);
 $stmt->execute();
 $order = $stmt->fetch();
 
@@ -602,60 +664,67 @@ if (!$order) {
     sendError('Order not found');
 }
 
-// Prepare GCash payment request
+// Prepare Xendit payment request
 $paymentData = [
+    'external_id' => $order['order_id'],
     'amount' => $amount,
-    'currency' => 'PHP',
-    'redirect_url' => 'http://localhost/Project-sa-SOFE-main/public/customer/thank-you.html', // Your thank you page
-    'cancel_url' => 'http://localhost/Project-sa-SOFE-main/public/customer/drinks.html',
-    'reference_number' => $order['order_id'],
-    'metadata' => [
-        'order_id' => $order['order_id'],
-        'customer_name' => $order['customer_name']
-    ]
+    'description' => 'Jessie Cane Juice Bar - Order ' . $order['order_id'],
+    'invoice_duration' => 3600, // 1 hour
+    'success_redirect_url' => 'http://localhost/Project-sa-SOFE-main/public/customer/thank-you.html?order=' . $order['order_id'],
+    'failure_redirect_url' => 'http://localhost/Project-sa-SOFE-main/public/customer/drinks.html?payment=failed',
+    'customer' => [
+        'given_names' => $order['customer_name'],
+        'email' => $order['customer_email'] ?? '',
+        'mobile_number' => $order['customer_phone'] ?? ''
+    ],
+    'payment_methods' => ['GCASH'],
+    'currency' => 'PHP'
 ];
 
 // Initialize cURL
 $ch = curl_init();
-curl_setopt($ch, CURLOPT_URL, GCASH_API_URL);
+curl_setopt($ch, CURLOPT_URL, XENDIT_API_URL);
 curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
 curl_setopt($ch, CURLOPT_POST, true);
 curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($paymentData));
+curl_setopt($ch, CURLOPT_USERPWD, XENDIT_SECRET_KEY . ':');
 curl_setopt($ch, CURLOPT_HTTPHEADER, [
-    'Content-Type: application/json',
-    'Authorization: Bearer ' . GCASH_API_KEY
+    'Content-Type: application/json'
 ]);
 
 $response = curl_exec($ch);
 $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
 curl_close($ch);
 
-if ($httpCode === 200) {
+if ($httpCode === 200 || $httpCode === 201) {
     $paymentResponse = json_decode($response, true);
     
     // Save payment record
-    $query = "INSERT INTO payments (order_id, gcash_reference, amount, status, metadata) 
-              VALUES (:order_id, :reference, :amount, 'Pending', :metadata)";
+    $query = "INSERT INTO payments (order_id, xendit_id, xendit_reference, amount, status, metadata) 
+              VALUES (:order_id, :xendit_id, :reference, :amount, 'Pending', :metadata)";
     $stmt = $db->prepare($query);
-    $stmt->bindParam(':order_id', $orderId);
-    $stmt->bindParam(':reference', $paymentResponse['reference_number']);
+    $stmt->bindParam(':order_id', $orderDbId);
+    $stmt->bindParam(':xendit_id', $paymentResponse['id']);
+    $stmt->bindParam(':reference', $order['order_id']);
     $stmt->bindParam(':amount', $amount);
     $stmt->bindParam(':metadata', json_encode($paymentResponse));
     $stmt->execute();
     
-    sendResponse(true, 'GCash payment link created', [
-        'payment_url' => $paymentResponse['checkout_url'],
-        'reference' => $paymentResponse['reference_number']
+    sendResponse(true, 'Xendit GCash payment link created', [
+        'payment_url' => $paymentResponse['invoice_url'],
+        'invoice_id' => $paymentResponse['id'],
+        'reference' => $order['order_id']
     ]);
 } else {
-    sendError('Failed to create GCash payment', 500);
+    $errorResponse = json_decode($response, true);
+    sendError('Failed to create payment: ' . ($errorResponse['message'] ?? 'Unknown error'), 500);
 }
 ?>
 ```
 
-### Step 4: GCash Callback Handler
+### Step 4: Xendit Webhook Handler
 
-**File: `api/payments/gcash-callback.php`**
+**File: `api/payments/xendit-webhook.php`**
 ```php
 <?php
 header('Access-Control-Allow-Origin: *');
@@ -663,41 +732,91 @@ header('Content-Type: application/json');
 
 require_once __DIR__ . '/../../config/database.php';
 
-define('GCASH_API_KEY', 'YOUR_API_KEY_HERE');
-define('GCASH_SECRET_KEY', 'YOUR_SECRET_KEY_HERE');
+define('XENDIT_WEBHOOK_TOKEN', 'YOUR_WEBHOOK_TOKEN_HERE');
 
-// Get the callback data from GCash
-$data = json_decode(file_get_contents('php://input'), true);
+// Get webhook data
+$json = file_get_contents('php://input');
+$data = json_decode($json, true);
 
-// Verify webhook signature (implement based on GCash documentation)
-$signature = $_SERVER['HTTP_X_GCASH_SIGNATURE'] ?? '';
-// Add signature verification logic here
-
-$reference = $data['reference_number'] ?? '';
-$status = $data['status'] ?? '';
+// Verify webhook token
+$webhookToken = $_SERVER['HTTP_X_CALLBACK_TOKEN'] ?? '';
+if ($webhookToken !== XENDIT_WEBHOOK_TOKEN) {
+    http_response_code(401);
+    echo json_encode(['error' => 'Unauthorized']);
+    exit;
+}
 
 $database = new Database();
 $db = $database->getConnection();
 
-// Update payment status
-$query = "UPDATE payments SET status = :status WHERE gcash_reference = :reference";
-$stmt = $db->prepare($query);
-$stmt->bindParam(':status', $status);
-$stmt->bindParam(':reference', $reference);
-$stmt->execute();
+// Handle different event types
+$event = $data['event'] ?? '';
 
-// Update order status based on payment
-if ($status === 'Success') {
-    $query = "UPDATE orders SET payment_status = 'Paid', order_status = 'Processing' 
-              WHERE id = (SELECT order_id FROM payments WHERE gcash_reference = :reference)";
+if ($event === 'invoice.paid') {
+    $invoiceId = $data['data']['id'] ?? '';
+    $status = 'Paid';
+    
+    // Get payment record
+    $query = "SELECT * FROM payments WHERE xendit_id = :xendit_id";
     $stmt = $db->prepare($query);
-    $stmt->bindParam(':reference', $reference);
+    $stmt->bindParam(':xendit_id', $invoiceId);
+    $stmt->execute();
+    $payment = $stmt->fetch();
+    
+    if ($payment) {
+        // Update payment status
+        $updateQuery = "UPDATE payments SET status = 'Paid' WHERE xendit_id = :xendit_id";
+        $updateStmt = $db->prepare($updateQuery);
+        $updateStmt->bindParam(':xendit_id', $invoiceId);
+        $updateStmt->execute();
+        
+        // Update order status
+        $orderQuery = "UPDATE orders SET payment_status = 'Paid', order_status = 'Approved' WHERE id = :order_id";
+        $orderStmt = $db->prepare($orderQuery);
+        $orderStmt->bindParam(':order_id', $payment['order_id']);
+        $orderStmt->execute();
+    }
+} elseif ($event === 'invoice.expired' || $event === 'invoice.failed') {
+    $invoiceId = $data['data']['id'] ?? '';
+    $status = 'Failed';
+    
+    $query = "UPDATE payments SET status = 'Failed' WHERE xendit_id = :xendit_id";
+    $stmt = $db->prepare($query);
+    $stmt->bindParam(':xendit_id', $invoiceId);
     $stmt->execute();
 }
 
+http_response_code(200);
 echo json_encode(['success' => true]);
 ?>
 ```
+
+### Step 5: Testing with Xendit Sandbox
+
+**Testing Payments in Sandbox Mode:**
+
+1. **Sandbox Account Setup:**
+   - Xendit automatically provides sandbox credentials when you sign up
+   - Use sandbox API key for testing (starts with `xnd_public_development_` for public key)
+   - Sandbox doesn't process real payments
+
+2. **Simulate GCash Payment:**
+   - When customer clicks checkout, they'll be redirected to Xendit sandbox payment page
+   - Use test GCash numbers provided by Xendit documentation
+   - Common test numbers: `09123456789` or as per Xendit's current sandbox testing guide
+   - Complete the payment flow to test successful payment
+
+3. **Test Payment States:**
+   - **Success:** Complete payment with valid test credentials
+   - **Failed:** Use invalid credentials or let payment expire
+   - **Expired:** Wait for invoice duration to expire (default 1 hour)
+
+4. **Webhook Testing:**
+   - Use Xendit's webhook simulation tool or ngrok for local testing
+   - Configure webhook URL in Xendit dashboard: `http://your-ngrok-url/jessie-cane-api/api/payments/xendit-webhook.php`
+   - Test different webhook events: `invoice.paid`, `invoice.expired`, `invoice.failed`
+
+**Important:** When ready for production, switch to production API key and complete Xendit's verification process.
 
 ---
 
@@ -971,13 +1090,14 @@ async function confirmOrder() {
     const orderData = {
         user_id: currentUser ? currentUser.id : null,
         customer_name: customerName,
+        customer_username: currentUser ? currentUser.username : '',
         customer_email: currentUser ? currentUser.email : '',
         customer_phone: customerPhone,
+        customer_notes: '',
         branch: branch,
         items: cart,
         subtotal: total,
-        total: total,
-        notes: ''
+        total: total
     };
 
     try {
@@ -995,8 +1115,8 @@ async function confirmOrder() {
             return;
         }
 
-        // Initiate GCash payment
-        const paymentResponse = await fetch('http://localhost/jessie-cane-api/api/payments/gcash-create.php', {
+        // Initiate Xendit GCash payment
+        const paymentResponse = await fetch('http://localhost/jessie-cane-api/api/payments/xendit-create.php', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1008,7 +1128,7 @@ async function confirmOrder() {
         const paymentResult = await paymentResponse.json();
 
         if (paymentResult.success) {
-            // Redirect to GCash payment page
+            // Redirect to Xendit GCash payment page
             window.location.href = paymentResult.data.payment_url;
         } else {
             alert('Failed to initiate payment: ' + paymentResult.message);
@@ -1049,8 +1169,8 @@ async function confirmOrder() {
    - ✓ Update order status
 
 5. **Payments**
-   - ✓ GCash payment link created
-   - ✓ GCash callback received
+   - ✓ Xendit GCash payment link created
+   - ✓ Xendit webhook received
    - ✓ Payment status updated
 
 6. **Frontend Integration**

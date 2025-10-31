@@ -103,7 +103,7 @@ Upload the `public/` folder to any static hosting service
 - **BACKEND-IMPLEMENTATION-GUIDE.md** - Complete PHP/MySQL backend guide including:
   - Database schema and setup instructions
   - PHP API endpoints for authentication, products, orders
-  - GCash payment integration guide
+  - Xendit GCash payment integration guide
   - Google Authentication integration
   - XAMPP configuration
   - Frontend integration examples
@@ -111,7 +111,7 @@ Upload the `public/` folder to any static hosting service
 The guide provides step-by-step instructions for implementing:
 - MySQL database using phpMyAdmin
 - RESTful PHP APIs
-- GCash payment gateway integration
+- Xendit GCash payment gateway integration
 - Google OAuth authentication
 - XAMPP Apache server setup
 
@@ -120,7 +120,7 @@ The guide provides step-by-step instructions for implementing:
 - **Storage:** LocalStorage (current), MySQL (planned)
 - **Icons:** Font Awesome
 - **Backend:** PHP, MySQL, XAMPP (planned)
-- **Payment:** GCash API (planned)
+- **Payment:** Xendit GCash API (planned)
 - **Authentication:** Google OAuth (planned)
 
 ## Documentation
