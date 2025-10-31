@@ -1,4 +1,4 @@
-# Jessie Cane Juice Bar - Frontend Website
+# Jessie Cane Juice Bar - Web Application
 
 ## Project Structure
 
@@ -28,15 +28,15 @@ Project-sa-SOFE-main/
 │   │   ├── css/
 │   │   ├── js/
 │   │   └── *.html
-│   └── cashier/           # Cashier Portal
+│   └── cashier_fairview/  # Cashier Portal (Fairview)
+│   └── cashier_sjdm/      # Cashier Portal (SJDM)
 │       ├── css/
 │       ├── js/
 │       └── *.html
 │
 └── Documentation/
-    ├── README.md          # This file
-    ├── QUICKSTART.md      # Quick start guide
-    └── PROJECT-STRUCTURE.md  # Complete structure documentation
+    ├── README.md                          # This file
+    └── BACKEND-IMPLEMENTATION-GUIDE.md    # Backend integration guide
 ```
 
 ## Setup Instructions
@@ -97,16 +97,36 @@ Upload the `public/` folder to any static hosting service
 - ✅ `database/` folder ready
 - ✅ Easy to add backend later
 
+## Backend Integration
+
+**For Backend Developers:** The complete backend implementation guide is available at:
+- **BACKEND-IMPLEMENTATION-GUIDE.md** - Complete PHP/MySQL backend guide including:
+  - Database schema and setup instructions
+  - PHP API endpoints for authentication, products, orders
+  - GCash payment integration guide
+  - Google Authentication integration
+  - XAMPP configuration
+  - Frontend integration examples
+
+The guide provides step-by-step instructions for implementing:
+- MySQL database using phpMyAdmin
+- RESTful PHP APIs
+- GCash payment gateway integration
+- Google OAuth authentication
+- XAMPP Apache server setup
+
 ## Technologies Used
-- HTML5, CSS3, JavaScript (Frontend)
-- LocalStorage (User authentication & data storage)
-- Font Awesome (Icons)
-- Pure client-side application (No backend required)
+- **Frontend:** HTML5, CSS3, JavaScript (Vanilla)
+- **Storage:** LocalStorage (current), MySQL (planned)
+- **Icons:** Font Awesome
+- **Backend:** PHP, MySQL, XAMPP (planned)
+- **Payment:** GCash API (planned)
+- **Authentication:** Google OAuth (planned)
 
 ## Documentation
 
-- **QUICKSTART.md** - Quick start guide
-- **PROJECT-STRUCTURE.md** - Complete structure documentation
+- **README.md** - This file
+- **BACKEND-IMPLEMENTATION-GUIDE.md** - Complete backend integration guide
 
 ## License
 This project is for educational purposes.
